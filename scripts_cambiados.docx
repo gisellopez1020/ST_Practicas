@@ -1,0 +1,238 @@
+SCRIPTS CAMBIADOS:
+MAESTRO:
+/etc/bind/named.conf.options
+options {
+        directory "/var/cache/bind";
+
+        recursion yes;
+        allow-query { 192.168.50.0/24; };
+
+        listen-on { any; };
+        listen-on-v6 { any; };
+
+        dnssec-validation auto;
+};
+
+/etc/bind/named.conf.local
+acl slaves {
+     192.168.50.4;
+};
+zone "lopez.com" {
+    type master;
+    file "/etc/bind/db.lopez.com";
+};
+zone "miotrositio.com" {
+    type master;
+    file "/etc/bind/db.miotrositio.com";
+};                                                                                                                                                                               zone "50.168.192.in-addr.arpa" {
+    type master;
+    file "/etc/bind/db.192";
+    allow-transfer { slaves; };
+    notify yes;
+};
+zone "servicios.com" {
+    type master;
+    file "/etc/bind/db.servicios.com";
+};
+zone "empresa.local" {
+    type master;
+    file "/etc/bind/db.empresa.local";
+    allow-transfer { slaves; };
+    notify yes;
+};
+zone "gisel.com" {
+    type master;
+    file "/etc/bind/db.gisel.com";
+};
+etc/bind/db.empresa.local
+$TTL 604800
+@   IN  SOA maestro.empresa.local. root.empresa.local. (
+            2025083001 ; Serial
+            604800     ; Refresh
+            86400      ; Retry
+            2419200    ; Expire
+            604800 )   ; Negative Cache TTL
+
+@   IN  NS  maestro.empresa.local.
+@   IN  NS  esclavo.empresa.local.
+
+maestro  IN  A   192.168.50.3
+esclavo  IN  A   192.168.50.4
+cliente  IN  A   192.168.50.2
+www      IN  CNAME maestro
+
+etc/bind/db.192
+;
+; BIND data file for local loopback interface
+;
+$TTL 604800
+@   IN  SOA maestro.empresa.local. root.empresa.local. (
+            2025083001 ; Serial
+            604800     ; Refresh
+            86400      ; Retry
+            2419200    ; Expire
+            604800 )   ; Negative Cache TTL
+
+@       IN  NS  maestro.empresa.local.
+@       IN  NS  esclavo.empresa.local.
+
+3   IN  PTR maestro.empresa.local.
+4   IN  PTR esclavo.empresa.local.
+2   IN  PTR cliente.empresa.local.
+
+
+ESCLAVO:
+etc/bind/named.conf.local
+zone "empresa.local" {
+    type slave;
+    masters { 192.168.50.3; };
+    file "db.empresa.local";
+};
+
+zone "50.168.192.in-addr.arpa" {
+    type slave;
+    masters { 192.168.50.3; };
+    file "db.192";
+};
+
+Log de transferencia de zona exitosa:
+vagrant@esclavo:~$ systemctl status named.service
+● named.service - BIND Domain Name Server
+     Loaded: loaded (/lib/systemd/system/named.service; enabled; vendor preset: enabled)
+     Active: active (running) since Sat 2025-08-30 17:47:58 UTC; 52s ago
+       Docs: man:named(8)
+    Process: 2334 ExecStart=/usr/sbin/named $OPTIONS (code=exited, status=0/SUCCESS)
+   Main PID: 2335 (named)
+      Tasks: 8 (limit: 3425)
+     Memory: 5.9M
+        CPU: 85ms
+     CGroup: /system.slice/named.service
+             └─2335 /usr/sbin/named -u bind
+
+Aug 30 17:47:58 esclavo named[2335]: transfer of '50.168.192.in-addr.arpa/IN' from 192.168.50.3#53: Transfer completed:>
+Aug 30 17:47:58 esclavo named[2335]: zone 50.168.192.in-addr.arpa/IN: sending notifies (serial 2025083001)
+Aug 30 17:47:59 esclavo named[2335]: zone empresa.local/IN: Transfer started.
+Aug 30 17:47:59 esclavo named[2335]: transfer of 'empresa.local/IN' from 192.168.50.3#53: connected using 192.168.50.3#>
+Aug 30 17:47:59 esclavo named[2335]: zone empresa.local/IN: transferred serial 2025083001
+Aug 30 17:47:59 esclavo named[2335]: transfer of 'empresa.local/IN' from 192.168.50.3#53: Transfer status: success
+Aug 30 17:47:59 esclavo named[2335]: transfer of 'empresa.local/IN' from 192.168.50.3#53: Transfer completed: 1 message>
+Aug 30 17:47:59 esclavo named[2335]: zone empresa.local/IN: sending notifies (serial 2025083001)
+Aug 30 17:48:08 esclavo named[2335]: managed-keys-zone: Unable to fetch DNSKEY set '.': timed out
+Aug 30 17:48:08 esclavo named[2335]: resolver priming query complete: timed out
+
+
+CLIENTE:
+etc/resolv.conf
+nameserver 192.168.50.4
+RESOLVER NOMBRES DE DOMINIO
+
+●	 dig @192.168.50.4 maestro.empresa.local
+●	 host maestro.empresa.local 192.168.50.4
+●	 nslookup cliente.empresa.local 192.168.50.4
+
+RESOLUCIÓN INVERSA
+
+●	dig -x 192.168.50.3 @192.168.50.4 
+●	host 192.168.50.3 192.168.50.4
+●	nslookup 192.168.50.2 192.168.50.4 
+
+HABILITAR mod_deflate
+
+sudo a2enmod deflate
+
+Para configurar 
+
+/etc/apache2/mods-enabled/deflate.conf
+<IfModule mod_deflate.c>
+  # force compression for clients that mangle 'Accept-Encoding' request headers
+  <IfModule mod_setenvif.c>
+    <IfModule mod_headers.c>
+      SetEnvIfNoCase ^(Accept-EncodXng|X-cept-Encoding|X{15}|~{15}|-{15})$ \
+        ^((gzip|deflate)\s*,?\s*)+|[X~-]{4,13}$ HAVE_Accept-Encoding
+      RequestHeader append Accept-Encoding "gzip,deflate" env=HAVE_Accept-Encoding
+    </IfModule>
+  </IfModule>
+
+  # compress all output with one of the following file extensions
+  <IfModule mod_filter.c>
+    AddOutputFilterByType DEFLATE \
+      "application/atom+xml" \
+      "application/javascript" \
+      "application/json" \
+      "application/ld+json" \
+      "application/manifest+json" \
+      "application/rdf+xml" \
+      "application/rss+xml" \
+      "application/schema+json" \
+      "application/geo+json" \
+      "application/vnd.ms-fontobject" \
+      "application/wasm" \
+      "application/x-font-ttf" \
+      "application/x-javascript" \
+      "application/x-web-app-manifest+json" \
+      "application/xhtml+xml" \
+      "application/xml" \
+      "font/eot" \
+      "font/opentype" \
+      "font/otf" \
+      "font/ttf" \
+      "image/bmp" \
+      "image/svg+xml" \
+      "image/vnd.microsoft.icon" \
+      "text/cache-manifest" \
+      "text/calendar" \
+      "text/css" \
+      "text/html" \
+      "text/javascript" \
+      "text/plain" \
+      "text/markdown" \
+      "text/vcard" \
+      "text/vnd.rim.location.xloc" \
+      "text/vtt" \
+      "text/x-component" \
+      "text/x-cross-domain-policy" \
+      "text/xml" \
+      "video/x-msvideo"
+  </IfModule>
+
+  # define and map media types to their appropriate encoding type
+  <IfModule mod_mime.c>
+    AddType image/svg+xml svg svgz
+    AddEncoding gzip svgz
+  </IfModule>
+</IfModule>
+
+Comandos para verificar encabezado 
+curl -H "Accept-Encoding: gzip" -I http://parcial.gisel.com
+HTTP/1.1 200 OK
+Date: Tue, 02 Sep 2025 15:15:13 GMT
+Server: Apache/2.4.52 (Ubuntu)
+Last-Modified: Mon, 01 Sep 2025 21:44:31 GMT
+ETag: "34d-63dc446d290f8-gzip"
+Accept-Ranges: bytes
+Vary: Accept-Encoding
+Content-Encoding: gzip
+Content-Length: 486
+Content-Type: text/html
+
+Tamaño de página sin compresión
+
+curl -s -o /dev/null -w "%{size_download}\n" http://parcial.gisel.com
+R// 845
+
+Tamaño de página con compresión
+
+curl -s -H "Accept-Encoding: gzip" -o /dev/null -w "%{size_download}\n" http://parcial.gisel.com
+R// 486
+
+Ngrok
+wget https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-stable-linux-amd64.zip
+
+unzip ngrok-stable-linux-amd64.zip
+
+sudo mv ngrok /usr/local/bin/
+
+ngrok config add-authtoken TOKEN
+
+ngrok http 80
+
